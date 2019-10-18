@@ -1,47 +1,78 @@
+.. _readme:
+
 openssh
 =======
+|img_travis| |img_sr|
+
+.. |img_travis| image:: https://travis-ci.com/saltstack-formulas/openssh-formula.svg?branch=master
+   :alt: Travis CI Build Status
+   :scale: 100%
+   :target: https://travis-ci.com/saltstack-formulas/openssh-formula
+.. |img_sr| image:: https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg
+   :alt: Semantic Release
+   :scale: 100%
+   :target: https://github.com/semantic-release/semantic-release
+
 Install and configure an openssh server.
 
-.. note::
+.. contents:: **Table of Contents**
 
-    See the full `Salt Formulas installation and usage instructions
-    <http://docs.saltstack.com/en/latest/topics/development/conventions/formulas.html>`_.
+General notes
+-------------
+
+See the full `SaltStack Formulas installation and usage instructions
+<https://docs.saltstack.com/en/latest/topics/development/conventions/formulas.html>`_.
+
+If you are interested in writing or contributing to formulas, please pay attention to the `Writing Formula Section
+<https://docs.saltstack.com/en/latest/topics/development/conventions/formulas.html#writing-formulas>`_.
+
+If you want to use this formula, please pay attention to the ``FORMULA`` file and/or ``git tag``,
+which contains the currently released version. This formula is versioned according to `Semantic Versioning <http://semver.org/>`_.
+
+See `Formula Versioning Section <https://docs.saltstack.com/en/latest/topics/development/conventions/formulas.html#versioning>`_ for more details.
+
+Contributing to this repo
+-------------------------
+
+**Commit message formatting is significant!!**
+
+Please see `How to contribute <https://github.com/saltstack-formulas/.github/blob/master/CONTRIBUTING.rst>`_ for more details.
 
 Available states
-================
+----------------
 
 .. contents::
-    :local:
+   :local:
 
 ``openssh``
------------
+^^^^^^^^^^^
 
 Installs the ``openssh`` server package and service.
 
 ``openssh.auth``
------------
+^^^^^^^^^^^^^^^^
 
 Manages SSH certificates for users.
 
 ``openssh.auth_map``
------------
+^^^^^^^^^^^^^^^^^^^^
 
 Same functionality as openssh.auth but with a simplified Pillar syntax.
 Plays nicely with `Pillarstack
 <https://docs.saltstack.com/en/latest/ref/pillar/all/salt.pillar.stack.html>`_.
 
 ``openssh.banner``
-------------------
+^^^^^^^^^^^^^^^^^^
 
 Installs a banner that users see when SSH-ing in.
 
 ``openssh.client``
-------------------
+^^^^^^^^^^^^^^^^^^
 
 Installs the openssh client package.
 
 ``openssh.config``
-------------------
+^^^^^^^^^^^^^^^^^^
 
 Installs the ssh daemon configuration file included in this formula
 (under "openssh/files"). This configuration file is populated
@@ -52,7 +83,7 @@ It is highly recommended ``PermitRootLogin`` is added to pillar
 so root login will be disabled.
 
 ``openssh.config_ini``
-----------------------
+^^^^^^^^^^^^^^^^^^^^^^
 
 Version of managing ``sshd_config`` that uses the 
 `ini_managed.option_present <https://docs.saltstack.com/en/latest/ref/states/all/salt.states.ini_manage.html>`_
@@ -62,9 +93,9 @@ distribution.
 
 
 ``openssh.known_hosts``
------------------------
+^^^^^^^^^^^^^^^^^^^^^^^
 
-Manages the side-wide ssh_known_hosts file and fills it with the
+Manages ``/etc/ssh/ssh_known_hosts`` and fills it with the
 public SSH host keys of your minions (collected via the Salt mine)
 and of hosts listed in you pillar data. It's possible to include
 minions managed via ``salt-ssh`` by using the ``known_hosts_salt_ssh`` renderer.
@@ -87,7 +118,7 @@ setup those functions through pillar::
         mine_function: cmd.run
         cmd: cat /etc/ssh/ssh_host_*_key.pub
         python_shell: True
-      public_ssh_host_names:
+      public_ssh_hostname:
         mine_function: grains.get
         key: id
 
@@ -99,8 +130,8 @@ use other names, then you should indicate the names to use in pillar keys
 ``openssh:known_hosts:mine_keys_function`` and
 ``openssh:known_hosts:mine_hostname_function``.
 
-You can also integrate alternate DNS names of the various hosts in the
-ssh_known_hosts files. You just have to list all the alternate DNS names as a
+You can also integrate alternate DNS names of the various hosts in
+``/etc/ssh/ssh_known_hosts``. You just have to specify all the alternate DNS names as a
 list in the ``openssh:known_hosts:aliases`` pillar key. Whenever the IPv4 or
 IPv6 behind one of those DNS entries matches an IPv4 or IPv6 behind the
 official hostname of a minion, the alternate DNS name will be associated to the
@@ -117,9 +148,19 @@ To **include minions managed via salt-ssh** install the ``known_hosts_salt_ssh``
     mkdir pillar/openssh
     ln -s ../../formulas/openssh-formula/_pillar/known_hosts_salt_ssh.sls pillar/openssh/known_hosts_salt_ssh.sls
 
-Pillar ``openssh:known_hosts:salt_ssh`` overrides the Salt Mine.
+You'll find the cached pubkeys in Pillar ``openssh:known_hosts:salt_ssh``.
 
-The pillar is fed by a host key cache. Populate it by applying ``openssh.gather_host_keys``
+It's possible to define aliases for certain hosts::
+
+    openssh:
+      known_hosts:
+        cache:
+          public_ssh_host_names:
+            minion.id:
+              - minion.id
+              - alias.of.minion.id
+
+The cache is populated by applying ``openssh.gather_host_keys``
 to the salt master::
 
     salt 'salt-master.example.test' state.apply openssh.gather_host_keys
@@ -129,30 +170,21 @@ The state tries to fetch the SSH host keys via ``salt-ssh``. It calls the comman
 
     openssh:
       known_hosts:
-        salt_ssh:
+        cache:
           user: salt-master
 
-It's possible to define aliases for certain hosts::
-
-    openssh:
-      known_hosts:
-        salt_ssh:
-          public_ssh_host_names:
-            minion.id:
-              - minion.id
-              - alias.of.minion.id
-
-You can use a cronjob to populate a host key cache::
+Use a cronjob to populate a host key cache::
 
     # crontab -e -u salt-master
     0 1 * * * salt 'salt-master.example.test' state.apply openssh.gather_host_keys
 
-Or just add it to your salt master::
+If you must have the latest pubkeys, run the state before all others::
 
     # states/top.sls:
     base:
       salt:
-        - openssh.known_hosts_salt_ssh
+        # slooooow!
+        - openssh.gather_host_keys
 
 You can also use a "golden" known hosts file. It overrides the keys fetched by the cronjob.
 This lets you re-use the trust estabished in the salt-ssh user's known_hosts file::
@@ -181,6 +213,52 @@ To **include localhost** and local IP addresses (``127.0.0.1`` and ``::1``) use 
         include_localhost: True
 
 ``openssh.moduli``
------------------------
+^^^^^^^^^^^^^^^^^^
 
 Manages the system wide ``/etc/ssh/moduli`` file.
+
+Testing
+-------
+
+Linux testing is done with ``kitchen-salt``.
+
+Requirements
+^^^^^^^^^^^^
+
+* Ruby
+* Docker
+
+.. code-block:: bash
+
+   $ gem install bundler
+   $ bundle install
+   $ bin/kitchen test [platform]
+
+Where ``[platform]`` is the platform name defined in ``kitchen.yml``,
+e.g. ``debian-9-2019-2-py3``.
+
+``bin/kitchen converge``
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Creates the docker instance and runs the ``template`` main state, ready for testing.
+
+``bin/kitchen verify``
+^^^^^^^^^^^^^^^^^^^^^^
+
+Runs the ``inspec`` tests on the actual instance.
+
+``bin/kitchen destroy``
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Removes the docker instance.
+
+``bin/kitchen test``
+^^^^^^^^^^^^^^^^^^^^
+
+Runs all of the stages above in one go: i.e. ``destroy`` + ``converge`` + ``verify`` + ``destroy``.
+
+``bin/kitchen login``
+^^^^^^^^^^^^^^^^^^^^^
+
+Gives you SSH access to the instance for manual testing.
+

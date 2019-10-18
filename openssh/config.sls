@@ -1,15 +1,20 @@
-{% from "openssh/map.jinja" import openssh with context %}
+{%- set tplroot = tpldir.split('/')[0] %}
+{%- from tplroot ~ "/map.jinja" import openssh, ssh_config, sshd_config with context %}
+{%- from tplroot ~ "/libtofs.jinja" import files_switch %}
 
-{%- set manage_sshd_config = salt['pillar.get']('sshd_config', False) %}
 
 include:
   - openssh
 
-{% if manage_sshd_config %}
+{%- if sshd_config %}
 sshd_config:
   file.managed:
     - name: {{ openssh.sshd_config }}
-    - source: {{ openssh.sshd_config_src }}
+    {#- Preserve backward compatibility using the `if` below #}
+    - source: {{ openssh.sshd_config_src if '://' in openssh.sshd_config_src
+                 else files_switch( [openssh.sshd_config_src],
+                                    'sshd_config'
+              ) }}
     - template: jinja
     - user: {{ openssh.sshd_config_user }}
     - group: {{ openssh.sshd_config_group }}
@@ -20,13 +25,17 @@ sshd_config:
     {%- endif %}
     - watch_in:
       - service: {{ openssh.service }}
-{% endif %}
+{%- endif %}
 
-{% if salt['pillar.get']('ssh_config', False) %}
+{%- if ssh_config %}
 ssh_config:
   file.managed:
     - name: {{ openssh.ssh_config }}
-    - source: {{ openssh.ssh_config_src }}
+    {#- Preserve backward compatibility using the `if` below #}
+    - source: {{ openssh.ssh_config_src if '://' in openssh.ssh_config_src
+                 else files_switch( [openssh.ssh_config_src],
+                                    'ssh_config'
+              ) }}
     - template: jinja
     - user: {{ openssh.ssh_config_user }}
     - group: {{ openssh.ssh_config_group }}
@@ -34,19 +43,19 @@ ssh_config:
     {%- if openssh.ssh_config_backup  %}
     - backup: minion
     {%- endif %}
-{% endif %}
+{%- endif %}
 
-{%- for keyType in ['ecdsa', 'dsa', 'rsa', 'ed25519'] %}
+{%- for keyType in openssh['host_key_algos'].split(',') %}
 {%-   set keyFile = "/etc/ssh/ssh_host_" ~ keyType ~ "_key" %}
-{%-   set keySize = salt['pillar.get']('openssh:generate_' ~ keyType ~ '_size', False) %}
-{%-   if salt['pillar.get']('openssh:provide_' ~ keyType ~ '_keys', False) %}
+{%-   set keySize = openssh.get('generate_' ~ keyType ~ '_size', False) %}
+{%-   if openssh.get('provide_' ~ keyType ~ '_keys', False) %}
 ssh_host_{{ keyType }}_key:
   file.managed:
     - name: {{ keyFile }}
     - contents_pillar: 'openssh:{{ keyType }}:private_key'
     - user: root
     - mode: 600
-    {%- if manage_sshd_config %}
+    {%- if sshd_config %}
     - require_in:
       - file: sshd_config
     {%- endif %}
@@ -59,14 +68,14 @@ ssh_host_{{ keyType }}_key.pub:
     - contents_pillar: 'openssh:{{ keyType }}:public_key'
     - user: root
     - mode: 600
-    {%- if manage_sshd_config %}
+    {%- if sshd_config %}
     - require_in:
       - file: sshd_config
     {%- endif %}
     - watch_in:
       - service: {{ openssh.service }}
-{%-   elif salt['pillar.get']('openssh:generate_' ~ keyType ~ '_keys', False) %}
-{%-     if keySize and salt['pillar.get']('openssh:enforce_' ~ keyType ~ '_size', False) %}
+{%-   elif openssh.get('generate_' ~ keyType ~ '_keys', False) %}
+{%-     if keySize and openssh.get('enforce_' ~ keyType ~ '_size', False) %}
 ssh_remove_short_{{ keyType }}_key:
   cmd.run:
     - name: "rm -f {{ keyFile }} {{ keyFile }}.pub"
@@ -80,7 +89,7 @@ ssh_generate_host_{{ keyType }}_key:
     - name: "rm {{ keyFile }}*; ssh-keygen -t {{ keyType }} {{ keySizePart }} -N '' -f {{ keyFile }}"
     - unless: "test -s {{ keyFile }}"
     - runas: root
-    {%- if manage_sshd_config %}
+    {%- if sshd_config %}
     - require_in:
       - file: sshd_config
     {%- endif %}
@@ -91,15 +100,15 @@ ssh_host_{{ keyType }}_key:  # set permissions
   file.managed:
     - name: {{ keyFile }}
     - replace: false
-    - mode: 0600
+    - mode: '0600'
     - require:
       - cmd: ssh_generate_host_{{ keyType }}_key
-    {%- if manage_sshd_config %}
+    {%- if sshd_config %}
     - require_in:
       - file: sshd_config
     {%- endif %}
 
-{%-   elif salt['pillar.get']('openssh:absent_' ~ keyType ~ '_keys', False) %}
+{%-   elif openssh.get('absent_' ~ keyType ~ '_keys', False) %}
 ssh_host_{{ keyType }}_key:
   file.absent:
     - name: {{ keyFile }}
@@ -114,7 +123,7 @@ ssh_host_{{ keyType }}_key.pub:
 {%-   endif %}
 {%- endfor %}
 
-{%- if salt['pillar.get']('sshd_config:UsePrivilegeSeparation', '')|lower == 'yes' %}
+{%- if sshd_config.get('UsePrivilegeSeparation', '')|lower == 'yes' %}
 /var/run/sshd:
   file.directory:
     - user: root
@@ -123,4 +132,4 @@ ssh_host_{{ keyType }}_key.pub:
       - file: sshd_config
     - watch_in:
       - service: {{ openssh.service }}
-{% endif %}
+{%- endif %}
